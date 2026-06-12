@@ -1,10 +1,20 @@
-"""Narrow-phase collision resolution + contact damage rules."""
+"""Narrow-phase collision resolution + contact damage rules.
+
+Two damage regimes:
+  * body vs body (tank/shape grinding): continuous, scaled by dt — slow burn.
+  * anything involving a projectile: a discrete exchange. On contact each
+    side takes the other's body_damage ONCE, then that pair is on cooldown
+    for HIT_COOLDOWN seconds. This makes damage frame-rate independent and
+    makes bullet penetration meaningful: a bullet survives as many hits as
+    its hp allows, losing the victim's body_damage per hit.
+"""
 from __future__ import annotations
 from ..core.vector import Vec2
 
 # damage applied per second of overlap, scaled by the *other* side's body_damage
 CONTACT_DPS_SCALE = 4.2
 SEPARATION_FORCE = 260.0
+HIT_COOLDOWN = 0.25        # seconds between hits for the same projectile pair
 
 
 def _hostile(a, b) -> bool:
@@ -18,6 +28,18 @@ def _hostile(a, b) -> bool:
 
 def _owner(e):
     return getattr(e, "owner", None)
+
+
+def _gate_open(proj, other, now: float) -> bool:
+    """Per-pair hit cooldown, stored on the projectile."""
+    gate = proj.hit_gate
+    if now < gate.get(other.id, 0.0):
+        return False
+    gate[other.id] = now + HIT_COOLDOWN
+    if len(gate) > 32:                      # drones live forever; prune
+        for k in [k for k, v in gate.items() if v < now]:
+            del gate[k]
+    return True
 
 
 def resolve(a, b, dt: float):
@@ -42,19 +64,28 @@ def resolve(a, b, dt: float):
     if not _hostile(a, b):
         return
 
-    # contact damage: each deals its body_damage to the other, per-second
-    dmg_to_b = a.body_damage * CONTACT_DPS_SCALE * dt
-    dmg_to_a = b.body_damage * CONTACT_DPS_SCALE * dt
+    now = a.world.time
+    # spawn-protected tanks neither take nor deal damage
+    if getattr(a, "shield_until", 0.0) > now \
+            or getattr(b, "shield_until", 0.0) > now:
+        return
 
-    # bullets burn out fast on impact: trade hp directly so penetration matters
     a_proj = a.kind in ("bullet", "trap", "drone")
     b_proj = b.kind in ("bullet", "trap", "drone")
+
     if a_proj or b_proj:
-        dmg_to_b = a.body_damage * (1.0 if a_proj else CONTACT_DPS_SCALE * dt)
-        dmg_to_a = b.body_damage * (1.0 if b_proj else CONTACT_DPS_SCALE * dt)
-        if a_proj and b_proj:
-            # projectile vs projectile: simultaneous hp exchange
-            pass
+        # discrete exchange, rate-limited per pair
+        keeper = a if a_proj else b
+        if a_proj and b_proj and b.id < a.id:
+            keeper = b
+        if not _gate_open(keeper, b if keeper is a else a, now):
+            return
+        dmg_to_b = a.body_damage
+        dmg_to_a = b.body_damage
+    else:
+        # body contact: each deals its body_damage to the other, per-second
+        dmg_to_b = a.body_damage * CONTACT_DPS_SCALE * dt
+        dmg_to_a = b.body_damage * CONTACT_DPS_SCALE * dt
 
     credit_a = _owner(a) or a
     credit_b = _owner(b) or b

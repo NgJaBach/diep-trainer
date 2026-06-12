@@ -28,6 +28,55 @@ def regular_polygon(cx, cy, r, sides, rot):
             for i in range(sides)]
 
 
+def lerp_color(a, b, t):
+    t = max(0.0, min(1.0, t))
+    return tuple(int(ca + (cb - ca) * t) for ca, cb in zip(a, b))
+
+
+def draw_barrel(surf, cx, cy, r, aim, spec, color, zoom):
+    ang = aim + math.radians(spec.angle)
+    d = Vec2.from_angle(ang)
+    p = Vec2.from_angle(ang + math.pi / 2)
+    L = r * spec.length
+    w0 = r * spec.width
+    w1 = w0 * (1.45 if spec.trapezoid else 1.0)
+    base = Vec2(cx, cy) + p * (r * spec.lat)
+    tip = base + d * L
+    pts = [
+        (base.x + p.x * w0 / 2, base.y + p.y * w0 / 2),
+        (tip.x + p.x * w1 / 2, tip.y + p.y * w1 / 2),
+        (tip.x - p.x * w1 / 2, tip.y - p.y * w1 / 2),
+        (base.x - p.x * w0 / 2, base.y - p.y * w0 / 2),
+    ]
+    pygame.draw.polygon(surf, color, pts)
+    pygame.draw.polygon(surf, darken(color), pts, max(1, int(2 * zoom)))
+
+
+def draw_tank_icon(surf, cx, cy, r, tdef, color, aim=-math.pi / 4):
+    """Miniature class preview used by the HUD upgrade buttons."""
+    zoom = r / 24.0
+    if tdef.body_shape == "smasher":
+        pts = regular_polygon(cx, cy, r * 1.32, 6, aim * 0.4)
+        pygame.draw.polygon(surf, C.COL_SMASHER, pts)
+        pygame.draw.polygon(surf, darken(C.COL_SMASHER), pts, 2)
+    elif tdef.body_shape == "spike":
+        pts = regular_polygon(cx, cy, r * 1.45, 12, aim * 0.6)
+        star = [p if i % 2 == 0 else (cx + (p[0] - cx) * 0.62,
+                                      cy + (p[1] - cy) * 0.62)
+                for i, p in enumerate(pts)]
+        pygame.draw.polygon(surf, C.COL_SMASHER, star)
+    for spec in tdef.barrels:
+        draw_barrel(surf, cx, cy, r, aim, spec, C.COL_BARREL, zoom)
+    if tdef.body_shape == "square":
+        pts = regular_polygon(cx, cy, r * 1.18, 4, aim * 0.25)
+        pygame.draw.polygon(surf, color, pts)
+        pygame.draw.polygon(surf, darken(color), pts, max(1, int(3 * zoom)))
+    else:
+        pygame.draw.circle(surf, color, (cx, cy), r)
+        pygame.draw.circle(surf, darken(color), (cx, cy), r,
+                           max(1, int(3 * zoom)))
+
+
 class Renderer:
     def __init__(self, screen):
         self.screen = screen
@@ -41,6 +90,13 @@ class Renderer:
         ax0, ay0 = cam.to_screen(Vec2(0, 0))
         ax1, ay1 = cam.to_screen(Vec2(C.ARENA_SIZE, C.ARENA_SIZE))
         pygame.draw.rect(s, C.COL_BG, (ax0, ay0, ax1 - ax0, ay1 - ay0))
+        # pentagon-nest tint (flat bg, so an opaque circle reads as a tint)
+        half = C.ARENA_SIZE / 2
+        if (x0 < half + C.NEST_RADIUS and x1 > half - C.NEST_RADIUS
+                and y0 < half + C.NEST_RADIUS and y1 > half - C.NEST_RADIUS):
+            nx, ny = cam.to_screen(Vec2(half, half))
+            pygame.draw.circle(s, C.COL_NEST, (nx, ny),
+                               C.NEST_RADIUS * cam.zoom)
         # grid
         step = C.GRID_STEP
         if cam.zoom * step >= 6:
@@ -82,6 +138,22 @@ class Renderer:
             self._draw_drone(d, cam)
         for t in layers["tank"]:
             self._draw_tank(t, cam, is_self=(t is player))
+
+        # death bursts: expanding, fading outline of the dead entity
+        for fx in world.effects:
+            if not (x0 - pad < fx["pos"].x < x1 + pad
+                    and y0 - pad < fx["pos"].y < y1 + pad):
+                continue
+            t01 = fx["age"] / fx["dur"]
+            sx, sy = cam.to_screen(fx["pos"])
+            r = fx["radius"] * (1.0 + 1.7 * t01) * cam.zoom
+            col = lerp_color(fx["color"], C.COL_BG, t01)
+            width = max(1, int(3 * cam.zoom * (1.0 - t01)) + 1)
+            if fx["sides"] >= 3:
+                pts = regular_polygon(sx, sy, r, fx["sides"], fx["rotation"])
+                pygame.draw.polygon(self.screen, col, pts, width)
+            else:
+                pygame.draw.circle(self.screen, col, (sx, sy), r, width)
 
         # health bars + nameplates last, on top
         for sh in layers["shape"]:
@@ -137,41 +209,40 @@ class Renderer:
 
         # barrels
         for spec in t.tdef.barrels:
-            self._draw_barrel(tmp, cx, cy, r, t.aim_angle, spec, barrel_col,
-                              cam.zoom)
+            draw_barrel(tmp, cx, cy, r, t.aim_angle, spec, barrel_col,
+                        cam.zoom)
 
         # body
-        pygame.draw.circle(tmp, body, (cx, cy), r)
-        pygame.draw.circle(tmp, darken(body), (cx, cy), r,
-                           max(1, int(3 * cam.zoom)))
+        if t.tdef.body_shape == "square":      # necromancer
+            pts = regular_polygon(cx, cy, r * 1.18, 4, t.aim_angle * 0.25)
+            pygame.draw.polygon(tmp, body, pts)
+            pygame.draw.polygon(tmp, darken(body), pts,
+                                max(1, int(3 * cam.zoom)))
+        else:
+            pygame.draw.circle(tmp, body, (cx, cy), r)
+            pygame.draw.circle(tmp, darken(body), (cx, cy), r,
+                               max(1, int(3 * cam.zoom)))
+
+        # spawn-protection shield: pulsing ring
+        if t.world.time < t.shield_until:
+            pulse = 1.0 + 0.06 * math.sin(t.world.time * 9.0)
+            pygame.draw.circle(tmp, (250, 250, 250), (cx, cy),
+                               r * 1.35 * pulse, max(2, int(3 * cam.zoom)))
 
         if use_alpha:
             tmp.set_alpha(int(255 * alpha))
             surf.blit(tmp, (sx - size / 2, sy - size / 2))
-
-    def _draw_barrel(self, surf, cx, cy, r, aim, spec, color, zoom):
-        ang = aim + math.radians(spec.angle)
-        d = Vec2.from_angle(ang)
-        p = Vec2.from_angle(ang + math.pi / 2)
-        L = r * spec.length
-        w0 = r * spec.width
-        w1 = w0 * (1.45 if spec.trapezoid else 1.0)
-        base = Vec2(cx, cy) + p * (r * spec.lat)
-        tip = base + d * L
-        pts = [
-            (base.x + p.x * w0 / 2, base.y + p.y * w0 / 2),
-            (tip.x + p.x * w1 / 2, tip.y + p.y * w1 / 2),
-            (tip.x - p.x * w1 / 2, tip.y - p.y * w1 / 2),
-            (base.x - p.x * w0 / 2, base.y - p.y * w0 / 2),
-        ]
-        pygame.draw.polygon(surf, color, pts)
-        pygame.draw.polygon(surf, darken(color), pts, max(1, int(2 * zoom)))
 
     def _draw_shape(self, sh: Shape, cam):
         sx, sy = cam.to_screen(sh.pos)
         r = sh.radius * cam.zoom * (1.18 if sh.sides <= 4 else 1.05)
         col = flash(sh.color, sh.damage_flash * 6)
         pts = regular_polygon(sx, sy, r, sh.sides, sh.rotation)
+        if getattr(sh, "shiny", False):     # sparkle halo behind shiny shapes
+            pulse = 1.25 + 0.1 * math.sin(sh.world.time * 6 + sh.id)
+            halo = regular_polygon(sx, sy, r * pulse, sh.sides, -sh.rotation)
+            pygame.draw.polygon(self.screen, (180, 255, 190), halo,
+                                max(1, int(2 * cam.zoom)))
         pygame.draw.polygon(self.screen, col, pts)
         pygame.draw.polygon(self.screen, darken(col), pts,
                             max(1, int(3 * cam.zoom)))
@@ -189,7 +260,7 @@ class Renderer:
         r = max(2.0, d.radius * cam.zoom * 1.25)
         col = flash(d.color, d.damage_flash * 6)
         rot = d.vel.angle() if d.vel.length_sq() > 4 else 0.0
-        pts = regular_polygon(sx, sy, r, 3, rot)
+        pts = regular_polygon(sx, sy, r, getattr(d, "sides", 3), rot)
         pygame.draw.polygon(self.screen, col, pts)
         pygame.draw.polygon(self.screen, darken(col), pts,
                             max(1, int(2 * cam.zoom)))

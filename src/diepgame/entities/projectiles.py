@@ -19,6 +19,10 @@ class Bullet(Entity):
         self.friction = 0.25
         self.push_factor = 0.6
         self.color = owner.color
+        self.hit_gate: dict[int, float] = {}   # per-victim hit cooldowns
+
+    def clamp_to_arena(self, dt: float):
+        pass        # bullets fly past the wall and expire on their own
 
     def update(self, dt: float):
         self.lifetime -= dt
@@ -34,9 +38,12 @@ class Trap(Bullet):
     def __init__(self, world, owner, pos, vel, radius, damage, hp):
         super().__init__(world, owner, pos, vel, radius, damage, hp,
                          lifetime=C.TRAP_LIFETIME)
-        self.friction = 4.5
+        self.friction = 1.8         # glide ~200 units before settling
         self.push_factor = 0.15
         self.rotation = random.uniform(0, math.tau)
+
+    def clamp_to_arena(self, dt: float):
+        Entity.clamp_to_arena(self, dt)   # traps are walls; keep them inside
 
 
 class Drone(Bullet):

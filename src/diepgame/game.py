@@ -11,7 +11,9 @@ Controls
   Esc           : quit
 """
 from __future__ import annotations
+import json
 import random
+from pathlib import Path
 import pygame
 from .core.camera import Camera
 from .core.vector import Vec2
@@ -20,6 +22,10 @@ from .ai.bot import BotManager
 from .ui.renderer import Renderer
 from .ui.hud import Hud
 from . import config as C
+
+
+STATS_PATH = Path.home() / ".polygon_arena_stats.json"
+STATS_KEYS = ("best_score", "best_level", "best_kills", "longest_life", "games")
 
 
 class Game:
@@ -39,14 +45,49 @@ class Game:
         self.player = None
         self.spawn_time = 0.0
         self.death_stats = None
+        self.death_level = 1
         self.paused = False
         self.running = True
+        self._mouse_block = False     # HUD swallowed the current click
+        self.stats = self._load_stats()
         self._spawn_player()
+
+    # ------------------------------------------------------ personal bests --
+    @staticmethod
+    def _load_stats() -> dict:
+        try:
+            data = json.loads(STATS_PATH.read_text())
+            return {k: data.get(k, 0) for k in STATS_KEYS}
+        except (OSError, ValueError):
+            return {k: 0 for k in STATS_KEYS}
+
+    def _record_run(self, stats: dict) -> bool:
+        """Update personal bests; returns True if the score is a new best."""
+        s = self.stats
+        new_best = stats["score"] > s["best_score"]
+        s["best_score"] = max(s["best_score"], int(stats["score"]))
+        s["best_level"] = max(s["best_level"], stats["level"])
+        s["best_kills"] = max(s["best_kills"], stats["kills"])
+        s["longest_life"] = max(s["longest_life"], int(stats["time"]))
+        s["games"] += 1
+        try:
+            STATS_PATH.write_text(json.dumps(s))
+        except OSError:
+            pass
+        return new_best
 
     # ------------------------------------------------------------------
     def _spawn_player(self):
+        # like the bots, keep part of your progress when you respawn
+        level = max(1, min(C.BOT_RESPAWN_LEVEL_CAP, self.death_level * 2 // 3))
+        if C.PLAYER_START_LEVEL is not None:
+            level = max(level, C.PLAYER_START_LEVEL)
         self.player = self.world.spawn_tank(self.player_name, is_player=True,
-                                            color=C.COL_PLAYER)
+                                            color=C.COL_PLAYER, level=level)
+        if C.PLAYER_START_CLASS:        # practice mode: jump to a class
+            self.player.def_key = C.PLAYER_START_CLASS
+            self.player._rebuild_barrels()
+            self.player._refresh_derived()
         self.world.player = self.player
         self.spawn_time = self.world.time
         self.death_stats = None
@@ -60,8 +101,10 @@ class Game:
             elif ev.type == pygame.KEYDOWN:
                 self._key_down(ev.key)
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
-                if not self.hud.handle_click(ev.pos, self.player):
-                    pass  # click-to-fire is handled by polling below
+                # a click the HUD consumes must not also fire the gun
+                self._mouse_block = self.hud.handle_click(ev.pos, self.player)
+            elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1:
+                self._mouse_block = False
 
     def _key_down(self, key):
         p = self.player
@@ -101,7 +144,7 @@ class Game:
             mv.x += 1
         p.move_input = mv
         mouse = pygame.mouse.get_pressed(3)
-        p.shooting = mouse[0] or keys[pygame.K_SPACE]
+        p.shooting = (mouse[0] and not self._mouse_block) or keys[pygame.K_SPACE]
         p.repelling = mouse[2] or keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
         mx, my = pygame.mouse.get_pos()
         target = self.camera.to_world(mx, my)
@@ -123,15 +166,28 @@ class Game:
                 self.camera.set_fov(p.tdef.fov, level_scale)
                 self.camera.follow(p.pos, dt)
             elif self.death_stats is None:
+                self.death_level = p.level
+                killer = p.last_attacker
+                if killer is None:
+                    killed_by = "the arena"
+                elif getattr(killer, "name", None):
+                    killed_by = killer.name
+                else:
+                    killed_by = getattr(killer, "shape_type",
+                                        "something") .replace("_", " ")
                 self.death_stats = dict(
                     score=p.score, level=p.level, kills=p.kills,
                     time=self.world.time - self.spawn_time,
+                    killed_by=killed_by,
                     **{"class": p.tdef.name})
+                self.death_stats["new_best"] = self._record_run(self.death_stats)
+                self.death_stats["best_score"] = self.stats["best_score"]
 
     def _draw(self):
         self.renderer.draw_background(self.camera)
         self.renderer.draw_world(self.world, self.camera, self.player)
-        self.hud.draw(self.world, self.player, paused=self.paused)
+        self.hud.draw(self.world, self.player, paused=self.paused,
+                      fps=self.clock.get_fps())
         if self.player is not None and not self.player.alive \
                 and self.death_stats is not None:
             self.hud.draw_death(self.death_stats)

@@ -1,10 +1,10 @@
 # Polygon Arena: offline tank trainer
 
 A fully offline, single-player tank-arena game inspired by diep.io. You fight
-in a 6000x6000 arena against AI bots, farm polygons for XP, allocate 8 stat
-lines, and climb a 38-class upgrade tree (Twin / Sniper / Machine Gun / Flank
-Guard branches up through tier-4 classes like Overlord, Annihilator, Booster,
-Ranger, Octo Tank and more).
+in a 9000x9000 arena against AI bots, farm polygons for XP, allocate 8 stat
+lines, and climb a 40-class upgrade tree (Twin / Sniper / Machine Gun / Flank
+Guard branches up through tier-4 classes like Overlord, Necromancer,
+Annihilator, Booster, Ranger, Octo Tank and more).
 
 Everything (code, art, balance numbers) is original and generated procedurally
 with `pygame`. No internet connection is ever needed.
@@ -47,9 +47,10 @@ Options:
 
 ```bash
 uv run diep --name "Ace"          # your in-game name
-uv run diep --bots 12             # number of AI opponents (default 8)
+uv run diep --bots 20             # number of AI opponents (default 14)
 uv run diep --window 1600x900     # window size (default 1280x720)
 uv run diep --difficulty hard     # bot AI: easy / normal / hard
+uv run diep --class overlord --level 45   # practice mode: jump into a build
 ```
 
 Equivalent: `uv run python -m diepgame`.
@@ -85,20 +86,33 @@ every tank class, and checks leveling/upgrades/projectiles all work.
 
 * **Shapes**: squares (10 XP), triangles (25), pentagons (130), alpha
   pentagons (3000). Pink **crashers** in the central pentagon nest chase you.
+  Rare **shiny** green shapes are worth 25x XP.
+* **The Guardian**: a boss crasher-mother awakens a few minutes in (and
+  again after each kill). It hunts tanks and births crashers; slaying it is
+  worth 8000 XP. Watch the minimap and the kill feed.
+* **Trainer extras**: a red edge arrow points to the arena leader, and your
+  personal bests (score / level / kills / longest life) persist in
+  `~/.polygon_arena_stats.json` and show on the death screen.
 * **Leveling**: cap is level 45; you earn 33 skill points across 8 stats
   (Health Regen, Max Health, Body Damage, Bullet Speed, Bullet Penetration,
   Bullet Damage, Reload, Movement Speed, max 7 points each).
 * **Class upgrades** unlock at levels **15 / 30 / 45**.
-* **Killing a tank** grants half its score. Dying shows your run stats;
-  you can respawn with `Enter`. Bots respawn at a level that keeps pace
-  with the arena leader (tunable via `--difficulty`).
+* **Killing a tank** grants half its score. Dying shows your run stats and
+  your killer; respawn with `Enter` and keep two-thirds of your level (bots
+  do the same, with a catch-up floor tied to the arena leader).
+* **Spawn protection**: a white shield ring guards every fresh spawn for a
+  few seconds; it breaks the moment you fire.
+* **Combat model**: projectile hits are discrete (a bullet damages a target
+  once per contact, then that pair is briefly on cooldown), so bullet
+  penetration governs how many things one shell can punch through.
 * **Bots** dodge bullets, lead their shots, finish wounded enemies, keep
   class-appropriate range, screen retreats with drones, and hold huge
   Destroyer shells until you are in range.
-* Special mechanics included: drone control (Overseer line), traps
-  (Trapper line), recoil propulsion (Tri-Angle/Booster/Fighter), invisibility
-  (Stalker, Manager, Landmine), rammer bodies (Smasher, Spike), huge-shell
-  knockback (Destroyer line), and per-class field-of-view zoom.
+* Special mechanics included: drone control (Overseer line), necromancy
+  (killed squares rise as your drones), traps (Trapper line), recoil
+  propulsion (Tri-Angle/Booster/Fighter genuinely jet past their speed cap),
+  invisibility (Stalker, Manager, Landmine), rammer bodies (Smasher, Spike),
+  huge-shell knockback (Destroyer line), and per-class field-of-view zoom.
 
 ### Class tree implemented
 
@@ -108,7 +122,7 @@ Basic
 │                Quad Tank ──── Octo Tank
 │                Twin Flank ─── Triple Twin | Battleship
 ├─ Sniper ────── Assassin ───── Ranger | Stalker
-│                Overseer ───── Overlord | Manager | Battleship | Overtrapper
+│                Overseer ───── Overlord | Necromancer | Manager | Battleship | Overtrapper
 │                Hunter ─────── Predator | Streamliner
 │                Trapper ────── Tri-Trapper | Mega Trapper | Overtrapper | Gunner Trapper
 ├─ Machine Gun ─ Destroyer ──── Annihilator | Hybrid
@@ -165,6 +179,9 @@ diep-trainer/
   `DIFFICULTY_PRESETS`.
 * Benchmark AI changes with `uv run python tests/ai_bench.py` (bot-vs-bot
   arena stats, a bullet-dodging probe, and a player-pressure probe).
+* Audit class balance with `uv run python tests/balance_audit.py`: per-class
+  frontal DPS / biggest hit / range / recoil thrust tables plus an
+  empirical time-to-kill duel for every class.
 
 ## 9. Troubleshooting
 

@@ -11,9 +11,9 @@ FPS = 60
 TITLE = "Polygon Arena — offline tank trainer"
 
 # ----------------------------------------------------------------- arena ----
-ARENA_SIZE = 6000          # square arena, world units == pixels at zoom 1
+ARENA_SIZE = 9000          # square arena, world units == pixels at zoom 1
 GRID_STEP = 30             # background grid spacing
-NEST_RADIUS = 650          # central "pentagon nest" radius
+NEST_RADIUS = 850          # central "pentagon nest" radius
 BORDER_PUSH = 220.0        # force pushing entities back inside the arena
 
 # ---------------------------------------------------------------- colors ----
@@ -34,6 +34,7 @@ COL_XP_BAR    = (255, 222, 67)
 COL_LVL_BAR   = (108, 240, 162)
 COL_TEXT      = (255, 255, 255)
 COL_SMASHER   = (90, 90, 90)
+COL_NEST      = (199, 199, 208)   # subtle tint of the central pentagon nest
 
 OUTLINE_DARKEN = 0.75      # outline color = fill * this
 
@@ -41,19 +42,20 @@ OUTLINE_DARKEN = 0.75      # outline color = fill * this
 LEVEL_CAP = 45
 
 def xp_for_level(level: int) -> float:
-    """Total score required to *be* at `level` (cumulative)."""
+    """Total score required to *be* at `level` (cumulative).
+    ~13k for level 45 — a fast trainer pace, about half the classic curve."""
     if level <= 1:
         return 0.0
     n = level - 1
-    return 0.83 * (n ** 3) + 9.0 * n
+    return 0.15 * (n ** 3) + 9.0 * n
 
-# levels that grant a skill point (1..28 every level, then every 3rd)
+# levels that grant a skill point (2..28 every level, then 30/33/.../45)
 def points_at_level(level: int) -> int:
     if level <= 1:
         return 0
     if level <= 28:
         return 1
-    return 1 if (level - 28) % 3 == 0 else 0
+    return 1 if (level - 27) % 3 == 0 else 0
 
 TOTAL_SKILL_POINTS = sum(points_at_level(l) for l in range(2, LEVEL_CAP + 1))  # 33
 
@@ -82,7 +84,7 @@ CLASS_UPGRADE_LEVELS = (15, 30, 45)
 
 # -------------------------------------------------------------- tank base ----
 TANK_BASE_RADIUS = 24.0
-TANK_RADIUS_PER_LEVEL = 0.28
+TANK_RADIUS_PER_LEVEL = 0.36
 TANK_BASE_HP = 50.0
 TANK_HP_PER_LEVEL = 2.0
 TANK_HP_PER_STAT = 20.0
@@ -95,10 +97,23 @@ TANK_REGEN_BASE = 0.0012         # fraction of max hp per second
 TANK_REGEN_PER_STAT = 0.0044
 TANK_FAST_REGEN_DELAY = 14.0     # seconds without damage -> fast regen
 TANK_FAST_REGEN_RATE = 0.07
+SPAWN_PROTECTION = 6.0           # seconds of spawn shield (breaks on firing)
+
+# practice mode (set via --class / --level CLI flags)
+PLAYER_START_CLASS = None        # tank def key, or None for "basic"
+PLAYER_START_LEVEL = None        # 1..45, or None for normal progression
+
+# ----------------------------------------------------------------- recoil ----
+RECOIL_IMPULSE = 26.0      # boost velocity gained per shot, per point of recoil
+BOOST_DECAY = 3.0          # /s decay of recoil thrust (not capped by move speed)
+BOOST_MAX = 420.0          # hard ceiling on recoil-driven speed
 
 # ---------------------------------------------------------------- bullets ----
 BULLET_BASE_DMG = 7.0
-BULLET_DMG_PER_STAT = 3.0
+BULLET_DMG_PER_STAT = 9.0
+BULLET_DMG_PER_LEVEL = 0.01      # +1%/level: a maxed lvl-45 bullet ≈ 101 dmg
+                                 # (one-shots a pentagon or a fresh tank)
+BULLET_SIZE_PER_LEVEL = 0.008    # bullets fatten with level (on top of body growth)
 BULLET_BASE_HP = 9.0
 BULLET_HP_PER_STAT = 5.5
 BULLET_BASE_SPEED = 420.0
@@ -114,10 +129,11 @@ TRAP_LIFETIME = 11.0
 KILL_XP_FRACTION = 0.5           # killing a tank grants half its score
 
 # ------------------------------------------------------------------- bots ----
-BOT_COUNT = 8
+BOT_COUNT = 14
 BOT_NAMES = [
     "Shiny", "Arras", "Pental", "Dorito", "Bluep", "Crash", "Octo", "Vex",
     "Mango", "Drift", "Nova", "Pixel", "Rhomb", "Snek", "Turbo", "Zephyr",
+    "Quark", "Glide", "Fang", "Bolt", "Echo", "Razor", "Comet", "Mocha",
 ]
 BOT_THINK_INTERVAL = 0.25       # seconds between brain re-evaluations
 BOT_RESPAWN_DELAY = 2.5
@@ -145,10 +161,14 @@ DIFFICULTY_PRESETS = {
 
 # ----------------------------------------------------------------- shapes ----
 SHAPE_TARGETS = {          # how many of each shape the spawner maintains
-    "square": 130,
-    "triangle": 70,
-    "pentagon": 28,
-    "alpha_pentagon": 2,
-    "crasher_small": 10,
-    "crasher_large": 6,
+    "square": 290,
+    "triangle": 155,
+    "pentagon": 60,
+    "alpha_pentagon": 4,
+    "crasher_small": 18,
+    "crasher_large": 11,
 }
+
+# ------------------------------------------------------------------- boss ----
+BOSS_FIRST_AT = 150.0      # seconds until the first Guardian spawns
+BOSS_INTERVAL = 240.0      # seconds between boss respawns after a kill

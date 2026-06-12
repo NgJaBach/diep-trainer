@@ -52,8 +52,8 @@ class Tank(Entity):
         self.drones: list[Drone] = []
         self.invisible_alpha = 1.0      # 1 = fully visible
         self.idle_timer = 0.0
-        self.recoil_vel = Vec2()
-        self.pending_class_choice = False
+        self.boost_vel = Vec2()         # recoil thrust, not capped by move speed
+        self.shield_until = world.time + C.SPAWN_PROTECTION
         self._rebuild_barrels()
         self._refresh_derived()
 
@@ -89,7 +89,8 @@ class Tank(Entity):
         return C.BASE_RELOAD * (1.0 - C.RELOAD_PER_STAT * self.stats[6])
 
     def bullet_damage(self) -> float:
-        return C.BULLET_BASE_DMG + C.BULLET_DMG_PER_STAT * self.stats[5]
+        return (C.BULLET_BASE_DMG + C.BULLET_DMG_PER_STAT * self.stats[5]) \
+            * (1.0 + C.BULLET_DMG_PER_LEVEL * (self.level - 1))
 
     def bullet_hp(self) -> float:
         return C.BULLET_BASE_HP + C.BULLET_HP_PER_STAT * self.stats[4]
@@ -116,8 +117,6 @@ class Tank(Entity):
             self.stat_points += C.points_at_level(self.level)
             self._refresh_derived()
             self.heal(self.max_health * 0.1)
-            if self.level in C.CLASS_UPGRADE_LEVELS and self.available_upgrades():
-                self.pending_class_choice = True
 
     def available_upgrades(self) -> list[str]:
         """Class keys this tank may upgrade into at its current level."""
@@ -139,9 +138,6 @@ class Tank(Entity):
         keep = self.tdef.max_drones
         while len(self.drones) > keep:
             self.drones.pop().alive = False
-        self.pending_class_choice = bool(self.available_upgrades()) and \
-            self.level in C.CLASS_UPGRADE_LEVELS
-        self.pending_class_choice = False
         return True
 
     # ------------------------------------------------------------ drones ----
@@ -160,9 +156,8 @@ class Tank(Entity):
 
     # ------------------------------------------------------------ firing ----
     def _spawn_projectile(self, spec: Barrel):
+        self.shield_until = 0.0          # firing breaks spawn protection
         ang = math.radians(spec.angle) + self.aim_angle
-        if self.auto_spin and not spec.kind == "drone":
-            ang = math.radians(spec.angle) + self.aim_angle
         direction = Vec2.from_angle(ang)
         perp = Vec2.from_angle(ang + math.pi / 2)
         muzzle = (self.pos
@@ -175,7 +170,8 @@ class Tank(Entity):
         speed = self.bullet_speed() * spec.spd
         dmg = self.bullet_damage() * spec.dmg
         hp = self.bullet_hp() * spec.pen
-        radius = self.radius * spec.width * 0.62 * spec.size
+        radius = (self.radius * spec.width * 0.62 * spec.size
+                  * (1.0 + C.BULLET_SIZE_PER_LEVEL * (self.level - 1)))
 
         if spec.kind == "trap":
             p = Trap(self.world, self, muzzle, shot_dir * (speed * 0.85),
@@ -185,14 +181,25 @@ class Tank(Entity):
                 return False
             p = Drone(self.world, self, muzzle, shot_dir * (speed * 0.6),
                       radius, dmg, hp, swarm=(spec.kind == "swarm"))
+            if self.tdef.necro:
+                p.sides = 4              # necromancer births squares
             self.drones.append(p)
         else:
             p = Bullet(self.world, self, muzzle,
-                       shot_dir * speed + self.vel * 0.35, radius, dmg, hp)
+                       shot_dir * speed + (self.vel + self.boost_vel) * 0.35,
+                       radius, dmg, hp)
         self.world.add(p)
-        # recoil
-        self.recoil_vel -= direction * (38.0 * spec.recoil)
+        # recoil: thrust opposite the barrel (rear guns propel you forward)
+        self.boost_vel -= direction * (C.RECOIL_IMPULSE * spec.recoil)
+        b = self.boost_vel.length()
+        if b > C.BOOST_MAX:
+            self.boost_vel = self.boost_vel * (C.BOOST_MAX / b)
         return True
+
+    def take_damage(self, amount: float, attacker=None):
+        if self.world.time < self.shield_until:
+            return
+        super().take_damage(amount, attacker)
 
     def update(self, dt: float):
         if not self.alive:
@@ -215,15 +222,18 @@ class Tank(Entity):
         else:
             self.invisible_alpha = 1.0
 
-        # movement
+        # movement (the speed cap applies only to drive velocity)
         accel = self.move_speed() * 9.0
         self.vel += self.move_input.normalized() * (accel * dt)
         sp = self.vel.length()
         cap = self.move_speed()
         if sp > cap:
             self.vel = self.vel * (cap / sp)
-        self.vel += self.recoil_vel
-        self.recoil_vel = Vec2()
+
+        # recoil thrust: its own channel so sustained rear-barrel fire
+        # genuinely accelerates Tri-Angle-line tanks past their speed cap
+        self.boost_vel = self.boost_vel * max(0.0, 1.0 - C.BOOST_DECAY * dt)
+        self.pos += self.boost_vel * dt
 
         if self.auto_spin:
             self.aim_angle += 1.4 * dt

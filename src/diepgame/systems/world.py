@@ -4,7 +4,8 @@ import math
 import random
 from ..core.vector import Vec2
 from ..entities.base import Entity
-from ..entities.shapes import Shape, SHAPE_DEFS
+from ..entities.shapes import Shape, Guardian, SHAPE_DEFS
+from ..entities.projectiles import Drone
 from ..entities.tank import Tank
 from .spatial import SpatialHash
 from . import collision
@@ -19,10 +20,13 @@ class World:
         self.grid = SpatialHash(140.0)
         self.player: Tank | None = None
         self.kill_feed: list[tuple[str, float]] = []   # (text, expiry)
+        self.effects: list[dict] = []                  # death bursts
         self._team_counter = 1
         self._shape_counts = {k: 0 for k in SHAPE_DEFS}
         self.bot_controllers = []   # filled by Game
         self.center = Vec2(C.ARENA_SIZE / 2, C.ARENA_SIZE / 2)
+        self.boss: Guardian | None = None
+        self.next_boss_at = C.BOSS_FIRST_AT
 
     # ---------------------------------------------------------- plumbing ----
     def add(self, e: Entity):
@@ -37,12 +41,39 @@ class World:
         return self._team_counter
 
     def on_entity_died(self, e: Entity):
+        # death burst (drawn by the renderer, aged in step)
+        if len(self.effects) < 80:
+            big = e.kind in ("tank", "shape")
+            self.effects.append(dict(
+                pos=e.pos.copy(), radius=e.radius,
+                color=getattr(e, "color", (160, 160, 160)),
+                sides=getattr(e, "sides", 0),
+                rotation=getattr(e, "rotation", 0.0),
+                age=0.0, dur=0.4 if big else 0.22))
         # award XP to the killer
         attacker = e.last_attacker
         if isinstance(e, Shape):
             self._shape_counts[e.shape_type] -= 1
+            if e.shape_type == "boss_guardian":
+                self.boss = None
+                self.next_boss_at = self.time + C.BOSS_INTERVAL
+                name = attacker.name if isinstance(attacker, Tank) else "the arena"
+                self.kill_feed.append(
+                    (f"{name} slew The Guardian! (+{int(e.xp_value)} XP)",
+                     self.time + 8.0))
             if isinstance(attacker, Tank) and attacker.alive:
-                attacker.add_score(e.xp_value)
+                # necromancers raise killed squares as drones instead of XP
+                if (e.shape_type == "square" and attacker.tdef.necro
+                        and len(attacker.drones) < attacker.tdef.max_drones):
+                    d = Drone(self, attacker, e.pos.copy(), Vec2(),
+                              e.radius * 0.78,
+                              attacker.bullet_damage() * 0.6,
+                              attacker.bullet_hp())
+                    d.sides = 4
+                    attacker.drones.append(d)
+                    self.add(d)
+                else:
+                    attacker.add_score(e.xp_value)
         elif isinstance(e, Tank):
             if isinstance(attacker, Tank) and attacker.alive and attacker is not e:
                 gained = max(20.0, e.score * C.KILL_XP_FRACTION)
@@ -86,6 +117,8 @@ class World:
         for _ in range(40):
             p = Vec2(random.uniform(margin, C.ARENA_SIZE - margin),
                      random.uniform(margin, C.ARENA_SIZE - margin))
+            if p.dist_to(self.center) < C.NEST_RADIUS + 300:
+                continue            # never spawn into the crasher nest
             if self.nearest_tank(p, max_dist=600) is None:
                 return p
         return p
@@ -128,9 +161,18 @@ class World:
         self.add(t)
         return t
 
+    def _spawn_boss(self):
+        ang = random.uniform(0, math.tau)
+        pos = self.center + Vec2.from_angle(ang, C.ARENA_SIZE * 0.38)
+        self.boss = Guardian(self, pos)
+        self.add(self.boss)
+        self.kill_feed.append(("The Guardian has awakened!", self.time + 8.0))
+
     # --------------------------------------------------------------- step ----
     def step(self, dt: float):
         self.time += dt
+        if self.boss is None and self.time >= self.next_boss_at:
+            self._spawn_boss()
         for e in self.entities:
             if e.alive:
                 e.update(dt)
@@ -143,6 +185,9 @@ class World:
         self.maintain_shapes()
         self.kill_feed = [(t, exp) for t, exp in self.kill_feed
                           if exp > self.time][-6:]
+        for fx in self.effects:
+            fx["age"] += dt
+        self.effects = [fx for fx in self.effects if fx["age"] < fx["dur"]]
 
     def leaderboard(self, n: int = 10):
         return sorted(self.tanks, key=lambda t: t.score, reverse=True)[:n]

@@ -47,7 +47,7 @@ ARCHETYPE = {
     "sniper": "sniper", "assassin": "sniper", "ranger": "sniper",
     "stalker": "sniper", "hunter": "sniper", "predator": "sniper",
     "overseer": "drone", "overlord": "drone", "manager": "drone",
-    "battleship": "drone",
+    "battleship": "drone", "necromancer": "drone",
     "trapper": "trap", "tri_trapper": "trap", "mega_trapper": "trap",
     "overtrapper": "trap",
     "flank_guard": "bullet", "tri_angle": "drift", "booster": "drift",
@@ -57,7 +57,8 @@ ARCHETYPE = {
 
 # upgrade-pick weights; unlisted classes default to 2
 CLASS_WEIGHTS = {
-    "overseer": 5, "overlord": 6, "annihilator": 5, "destroyer": 4,
+    "overseer": 5, "overlord": 6, "necromancer": 4, "annihilator": 5,
+    "destroyer": 4,
     "fighter": 5, "booster": 4, "triplet": 5, "penta_shot": 4,
     "octo_tank": 4, "streamliner": 5, "tri_angle": 4, "spike": 3,
     "twin": 3, "sniper": 3, "machine_gun": 3, "hunter": 3, "gunner": 3,
@@ -68,7 +69,7 @@ CLASS_WEIGHTS = {
 BIG_SHOT = {"destroyer", "annihilator", "hybrid"}
 
 IDEAL_RANGE = {"bullet": 420, "sniper": 680, "drone": 540,
-               "trap": 300, "body": 0, "drift": 200}
+               "trap": 240, "body": 0, "drift": 200}
 
 
 class BotController:
@@ -140,7 +141,9 @@ class BotController:
         self.target = self._pick_shape()
 
     def _power(self, t: Tank) -> float:
-        return t.score + 120.0 * t.level + 200.0
+        # judge threat mostly by level (what a real player can see) so a fat
+        # score doesn't make everyone too scared to ever challenge the leader
+        return 150.0 * t.level + min(t.score, 3000.0) + 200.0
 
     def _overmatched(self, enemy) -> bool:
         if enemy is None:
@@ -192,6 +195,8 @@ class BotController:
                 v *= 0.25
             if s.shape_type == "pentagon" and t.level >= 15:
                 v *= 1.6                       # leveled bots camp the nest
+            if s.shape_type == "boss_guardian" and (t.level < 25 or hp < 0.6):
+                v *= 0.05                      # don't feed the boss
             return v
         if shapes:
             return max(shapes, key=value)
