@@ -10,9 +10,13 @@ def main():
                         help="number of bot opponents (default 8)")
     parser.add_argument("--window", default=None,
                         help="window size, e.g. 1600x900")
+    parser.add_argument("--difficulty", choices=("easy", "normal", "hard"),
+                        default="normal", help="bot AI difficulty (default normal)")
     args = parser.parse_args()
 
     from . import config as C
+    for key, value in C.DIFFICULTY_PRESETS[args.difficulty].items():
+        setattr(C, key, value)
     if args.bots is not None:
         C.BOT_COUNT = max(0, args.bots)
     if args.window:

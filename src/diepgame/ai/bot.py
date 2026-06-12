@@ -1,15 +1,30 @@
-"""Bot controller: drives a Tank with simple but effective behaviors.
+"""Bot controller: drives a Tank with perception, dodging and class tactics.
 
-States: FARM (grind shapes), ATTACK (push a weaker enemy), FLEE (low hp or
-outmatched). Bots also allocate skill points along per-archetype build
-orders and pick class upgrades automatically.
+States: FARM (grind shapes), ATTACK (push an enemy), FLEE (low hp or
+outmatched, with heal-up hysteresis). On top of the state machine bots:
+
+  * dodge incoming bullets every frame (sidestep along the perpendicular
+    of the bullet's closest-approach path; big shells weighted heavier)
+  * score targets instead of taking the nearest: wounded enemies and weaker
+    tanks are preferred, locked targets are sticky, the player can be
+    prioritized via config.BOT_PLAYER_FOCUS
+  * never break off a kill: an enemy under 30% hp is chased down even when
+    the bot itself is hurt
+  * keep class-appropriate range, orbit-strafe with random direction flips,
+    and weave while ramming
+  * hold huge shells (Destroyer line) until the target is in range
+  * use drone repel to screen retreats and to meet charging rammers
+  * lead shots with a two-pass intercept solve and steer clear of the wall
+
+Bots allocate skill points along per-archetype build orders and pick class
+upgrades along weighted favorite paths. Difficulty knobs live in config.py
+(BOT_AGGRESSION, BOT_DODGE, respawn level scaling, ...).
 """
 from __future__ import annotations
 import math
 import random
 from ..core.vector import Vec2
 from ..entities.tank import Tank
-from ..tanks.definitions import TANK_DEFS
 from .. import config as C
 
 # stat priority orders by archetype (indices into the 8-stat array)
@@ -17,6 +32,7 @@ BUILDS = {
     "bullet":  [6, 5, 4, 3, 7, 1, 0, 2],   # reload, dmg, pen, speed...
     "sniper":  [5, 4, 3, 6, 7, 1, 0, 2],
     "drone":   [5, 4, 3, 6, 1, 0, 7, 2],
+    "trap":    [6, 5, 4, 1, 0, 3, 7, 2],
     "body":    [7, 2, 1, 0, 3, 4, 5, 6],   # rammer
     "drift":   [7, 6, 5, 4, 1, 0, 3, 2],   # booster-style
 }
@@ -31,25 +47,44 @@ ARCHETYPE = {
     "sniper": "sniper", "assassin": "sniper", "ranger": "sniper",
     "stalker": "sniper", "hunter": "sniper", "predator": "sniper",
     "overseer": "drone", "overlord": "drone", "manager": "drone",
-    "battleship": "drone", "trapper": "drone", "tri_trapper": "drone",
-    "mega_trapper": "drone", "overtrapper": "drone",
+    "battleship": "drone",
+    "trapper": "trap", "tri_trapper": "trap", "mega_trapper": "trap",
+    "overtrapper": "trap",
     "flank_guard": "bullet", "tri_angle": "drift", "booster": "drift",
     "fighter": "drift",
     "smasher": "body", "spike": "body", "landmine": "body",
 }
+
+# upgrade-pick weights; unlisted classes default to 2
+CLASS_WEIGHTS = {
+    "overseer": 5, "overlord": 6, "annihilator": 5, "destroyer": 4,
+    "fighter": 5, "booster": 4, "triplet": 5, "penta_shot": 4,
+    "octo_tank": 4, "streamliner": 5, "tri_angle": 4, "spike": 3,
+    "twin": 3, "sniper": 3, "machine_gun": 3, "hunter": 3, "gunner": 3,
+    "ranger": 3, "hybrid": 3, "spread_shot": 3,
+}
+
+# classes whose single shell is too precious to spray at nothing
+BIG_SHOT = {"destroyer", "annihilator", "hybrid"}
+
+IDEAL_RANGE = {"bullet": 420, "sniper": 680, "drone": 540,
+               "trap": 300, "body": 0, "drift": 200}
 
 
 class BotController:
     def __init__(self, world, tank: Tank, skill: float = 1.0):
         self.world = world
         self.tank = tank
-        self.skill = skill                       # 0.5 timid .. 1.5 aggressive
+        self.skill = skill                       # 0.5 timid .. 1.6 fierce
         self.think_timer = random.uniform(0, C.BOT_THINK_INTERVAL)
         self.state = "FARM"
         self.target = None                       # entity being pursued
+        self.target_lock = 0.0                   # stickiness timer
+        self.recover_frac = 0.0                  # heal to this before re-engaging
+        self.strafe_dir = random.choice((-1.0, 1.0))
+        self.strafe_timer = random.uniform(0.8, 2.2)
         self.wander = Vec2.from_angle(random.uniform(0, math.tau))
-        self.aim_jitter = random.uniform(0.5, 1.0) * (2.0 - skill)
-        self.respawn_timer = 0.0
+        self.aim_jitter = max(0.05, random.uniform(0.4, 1.0) * (1.6 - skill))
         self.preferred_branch = random.choice(
             ["twin", "sniper", "machine_gun", "flank_guard"])
 
@@ -70,44 +105,94 @@ class BotController:
         self._spend_points()
         self._maybe_upgrade_class()
 
-        hp_frac = t.health / t.max_health
-        enemy = self._pick_enemy()
+        hp = t.health / t.max_health
+        enemy, engage = self._pick_enemy()
 
-        if hp_frac < 0.3:
-            self.state, self.target = "FLEE", enemy
+        # blood in the water: a nearly dead enemy is worth almost any risk
+        finishing = (enemy is not None
+                     and enemy.health < enemy.max_health * 0.30
+                     and t.pos.dist_to(enemy.pos) < 820)
+
+        if self.state == "FLEE":
+            if enemy is None or (hp >= self.recover_frac
+                                 and not self._overmatched(enemy)):
+                self.state = "FARM"
+            else:
+                self.target = enemy
+                return
+
+        flee_at = max(0.12, 0.40 - 0.16 * self.skill * C.BOT_AGGRESSION)
+        threatened = enemy is not None and t.pos.dist_to(enemy.pos) < 700
+        if threatened and not finishing \
+                and (hp < flee_at or self._overmatched(enemy)):
+            self.state = "FLEE"
+            self.recover_frac = min(0.9, hp + 0.35)
+            self.target = enemy
             return
-        if enemy is not None:
-            my_power = t.score + 200
-            their_power = enemy.score + 200
-            dist = t.pos.dist_to(enemy.pos)
-            if their_power > my_power * (2.2 - 0.6 * self.skill) and dist < 700:
-                self.state, self.target = "FLEE", enemy
-                return
-            if (their_power < my_power * (1.1 + 0.5 * self.skill)
-                    and dist < 900 * self.skill):
-                self.state, self.target = "ATTACK", enemy
-                return
-        # otherwise: farm
+
+        if enemy is not None and engage and (hp > flee_at + 0.1 or finishing):
+            self.state = "ATTACK"
+            self.target = enemy
+            self.target_lock = 1.5
+            return
+
         self.state = "FARM"
         self.target = self._pick_shape()
 
+    def _power(self, t: Tank) -> float:
+        return t.score + 120.0 * t.level + 200.0
+
+    def _overmatched(self, enemy) -> bool:
+        if enemy is None:
+            return False
+        courage = 1.6 + 0.8 * min(self.skill * C.BOT_AGGRESSION, 1.8)
+        return self._power(enemy) > self._power(self.tank) * courage
+
     def _pick_enemy(self):
+        """Returns (best_enemy_or_None, engage_bool)."""
         t = self.tank
-        candidates = self.world.tanks_near(t.pos, 1100, exclude_team=t.team)
-        visible = [c for c in candidates if c.invisible_alpha > 0.25]
-        if not visible:
-            return None
-        return min(visible, key=lambda c: c.pos.dist_sq_to(t.pos))
+        rng = 1000 + 250 * C.BOT_AGGRESSION
+        cands = self.world.tanks_near(t.pos, rng, exclude_team=t.team)
+        cands = [c for c in cands if c.invisible_alpha > 0.25]
+        if not cands:
+            return None, False
+        cur = self.target if isinstance(self.target, Tank) else None
+        best, best_s = None, 0.0
+        for c in cands:
+            d = max(80.0, t.pos.dist_to(c.pos))
+            s = 900.0 / d
+            if c.health < c.max_health * 0.45:
+                s *= 1.8                       # wounded: finish the job
+            if self._overmatched(c):
+                s *= 0.25
+            elif self._power(c) < self._power(t):
+                s *= 1.4                       # prey
+            if c.is_player:
+                s *= C.BOT_PLAYER_FOCUS
+            if c is cur:
+                s *= 1.5 if self.target_lock > 0 else 1.15
+            if s > best_s:
+                best, best_s = c, s
+        d = t.pos.dist_to(best.pos)
+        wounded = best.health < best.max_health * 0.45
+        engage = d < 900 * self.skill * C.BOT_AGGRESSION or wounded
+        return best, engage
 
     def _pick_shape(self):
         t = self.tank
-        shapes = self.world.shapes_near(t.pos, 850)
-        # crashers are dangerous food; deprioritize for weak bots
+        shapes = self.world.shapes_near(t.pos, 900)
+        hp = t.health / max(1.0, t.max_health)
+
         def value(s):
             d = max(60.0, s.pos.dist_to(t.pos))
-            risk = 2.0 if s.is_crasher and t.level < 10 else 1.0
-            big = 3.0 if s.shape_type == "alpha_pentagon" and t.level < 25 else 1.0
-            return (s.xp_value / d) / (risk * big)
+            v = s.xp_value / d
+            if s.is_crasher and (t.level < 10 or hp < 0.5):
+                v *= 0.3                       # dangerous food
+            if s.shape_type == "alpha_pentagon" and t.level < 28:
+                v *= 0.25
+            if s.shape_type == "pentagon" and t.level >= 15:
+                v *= 1.6                       # leveled bots camp the nest
+            return v
         if shapes:
             return max(shapes, key=value)
         return None
@@ -131,36 +216,44 @@ class BotController:
             return
         if t.def_key == "basic" and self.preferred_branch in opts:
             t.upgrade_class(self.preferred_branch)
-        else:
-            t.upgrade_class(random.choice(opts))
+            return
+        weights = [CLASS_WEIGHTS.get(k, 2) for k in opts]
+        t.upgrade_class(random.choices(opts, weights=weights)[0])
 
     # -------------------------------------------------------------- body ----
     def _act(self, dt: float):
         t = self.tank
+        self.target_lock = max(0.0, self.target_lock - dt)
+        self.strafe_timer -= dt
+        if self.strafe_timer <= 0:
+            self.strafe_timer = random.uniform(0.8, 2.2)
+            self.strafe_dir = -self.strafe_dir
+
         target = self.target if (self.target and self.target.alive) else None
         move = Vec2()
+        t.repelling = False
 
         if self.state == "FLEE" and target is not None:
             move = (t.pos - target.pos).normalized()
             self._aim_at(target)
             t.shooting = True            # shoot while retreating
+            if t.tdef.max_drones > 0:
+                t.repelling = True       # drones screen the retreat
+                t.shooting = False
         elif self.state == "ATTACK" and target is not None:
-            d = t.pos.dist_to(target.pos)
-            ideal = self._ideal_range()
-            direction = (target.pos - t.pos).normalized()
-            if d > ideal:
-                move = direction
-            elif d < ideal * 0.6:
-                move = -direction
-            # strafe
-            strafe = Vec2(-direction.y, direction.x)
-            move += strafe * math.sin(self.world.time * 1.7 + t.id)
+            move = self._combat_move(target)
             self._aim_at(target)
-            t.shooting = True
+            t.shooting = self._trigger(target)
+            if (t.tdef.max_drones > 0
+                    and ARCHETYPE.get(target.def_key) == "body"
+                    and t.pos.dist_to(target.pos)
+                    < t.radius + target.radius + 160):
+                t.repelling = True       # throw drones into a charging rammer
         elif target is not None:   # FARM
-            move = (target.pos - t.pos).normalized()
+            d = target.pos - t.pos
+            move = d.normalized() if d.length() > 120 else Vec2()
             self._aim_at(target)
-            t.shooting = t.pos.dist_to(target.pos) < 700
+            t.shooting = d.length() < 650
         else:
             # wander, drifting back toward the arena's inner area
             if random.random() < 0.02:
@@ -170,29 +263,103 @@ class BotController:
                 self.wander = center_pull.normalized()
             move = self.wander
             t.shooting = False
+            t.aim_target = None
+            t.aim_angle = self.wander.angle()
 
-        # rammers always charge
-        if ARCHETYPE.get(t.def_key) == "body" and target is not None \
-                and self.state != "FLEE":
-            move = (target.pos - t.pos).normalized()
+        dodge = self._dodge_vector()
+        if dodge is not None:
+            k = 1.2 * min(1.5, C.BOT_DODGE * (0.4 + 0.6 * self.skill))
+            move = move * 0.55 + dodge * k
 
+        move += self._border_push()
         t.move_input = move
-        t.repelling = False
 
-    def _ideal_range(self) -> float:
-        a = ARCHETYPE.get(self.tank.def_key, "bullet")
-        return {"bullet": 420, "sniper": 640, "drone": 520,
-                "body": 0, "drift": 220}[a]
+    def _combat_move(self, target) -> Vec2:
+        t = self.tank
+        d = t.pos.dist_to(target.pos)
+        direction = (target.pos - t.pos).normalized()
+        perp = Vec2(-direction.y, direction.x)
+        arche = ARCHETYPE.get(t.def_key, "bullet")
+        if arche == "body":
+            # charge with a weave so bullet streams miss
+            return direction + perp * (0.35 * self.strafe_dir)
+        move = Vec2()
+        ideal = IDEAL_RANGE[arche]
+        if d > ideal * 1.1:
+            move += direction
+        elif d < ideal * 0.65:
+            move -= direction
+        move += perp * (0.8 * self.strafe_dir)
+        if target.health < target.max_health * 0.3:
+            move += direction * 0.6      # run the kill down
+        return move
+
+    def _trigger(self, target) -> bool:
+        """Whether to hold the fire button this frame."""
+        t = self.tank
+        if t.def_key in BIG_SHOT:
+            return t.pos.dist_to(target.pos) < 540
+        return True
+
+    def _dodge_vector(self):
+        """Perpendicular escape vector for incoming bullets, or None."""
+        t = self.tank
+        if C.BOT_DODGE <= 0:
+            return None
+        acc = Vec2()
+        n = 0
+        for e in self.world.grid.query_circle(t.pos, 230 + t.radius):
+            if e.kind != "bullet" or not e.alive or e.team == t.team:
+                continue
+            r = e.pos - t.pos
+            v = e.vel - t.vel
+            vv = v.length_sq()
+            if vv < 1600 or r.dot(v) >= 0:      # slow or moving away
+                continue
+            tca = -r.dot(v) / vv                # time of closest approach
+            if tca > 0.9:
+                continue
+            closest = r + v * tca               # offset at closest approach
+            if closest.length() > t.radius + e.radius + 26:
+                continue
+            perp = Vec2(-v.y, v.x).normalized()
+            if perp.dot(closest) > 0:
+                perp = -perp                    # step away from the path
+            w = (1.0 - tca / 0.9) * (2.2 if e.radius > 13 else 1.0)
+            acc += perp * w
+            n += 1
+            if n >= 6:
+                break
+        return acc.normalized() if n else None
+
+    def _border_push(self) -> Vec2:
+        t = self.tank
+        m = 160.0
+        push = Vec2()
+        if t.pos.x < m:
+            push.x += 1
+        elif t.pos.x > C.ARENA_SIZE - m:
+            push.x -= 1
+        if t.pos.y < m:
+            push.y += 1
+        elif t.pos.y > C.ARENA_SIZE - m:
+            push.y -= 1
+        return push * 0.9
 
     def _aim_at(self, target):
         t = self.tank
-        # lead the target based on bullet travel time
-        d = t.pos.dist_to(target.pos)
-        bspd = max(120.0, t.bullet_speed())
-        lead = target.pos + target.vel * (d / bspd) * 0.85
-        err = self.aim_jitter * 0.06
-        ang = (lead - t.pos).angle() + random.uniform(-err, err)
-        t.aim_angle = ang
+        if ARCHETYPE.get(t.def_key) == "drone":
+            # drones home continuously; aim at a lightly-led position
+            lead = target.pos + target.vel * 0.2
+        else:
+            # two-pass intercept solve on bullet travel time
+            bspd = max(140.0, t.bullet_speed())
+            lead = target.pos
+            for _ in range(2):
+                lead = target.pos + target.vel * (t.pos.dist_to(lead) / bspd)
+        err = self.aim_jitter * 0.05
+        t.aim_angle = (lead - t.pos).angle() + random.uniform(-err, err)
+        t.aim_target = lead                     # drones fly to the intercept
 
 
 class BotManager:
@@ -202,13 +369,14 @@ class BotManager:
         self.world = world
         self.controllers: list[BotController] = []
         self.pending: list[tuple[float, str, float, int]] = []  # time, name, skill, lvl
-        self._used_names = set()
 
     def spawn_initial(self):
-        names = random.sample(C.BOT_NAMES, C.BOT_COUNT)
+        names = random.sample(C.BOT_NAMES, min(C.BOT_COUNT, len(C.BOT_NAMES)))
+        while len(names) < C.BOT_COUNT:
+            names.append(f"Bot{len(names) + 1}")
         for n in names:
-            lvl = random.randint(1, 18)
-            self._spawn(n, random.uniform(0.6, 1.4), lvl)
+            lvl = random.randint(*C.BOT_SPAWN_LEVELS)
+            self._spawn(n, random.uniform(*C.BOT_SKILL_RANGE), lvl)
 
     def _spawn(self, name, skill, level):
         tank = self.world.spawn_tank(name, def_key="basic", level=level)
@@ -217,14 +385,19 @@ class BotManager:
         ctrl._maybe_upgrade_class()
         self.controllers.append(ctrl)
 
+    def _respawn_level(self, died_at: int) -> int:
+        top = max((t.level for t in self.world.tanks if t.alive), default=1)
+        floor = int(top * C.BOT_CATCHUP_FACTOR)
+        lvl = max(died_at * 2 // 3, floor, 6)
+        return min(C.BOT_RESPAWN_LEVEL_CAP, lvl)
+
     def update(self, dt: float):
         now = self.world.time
         for c in list(self.controllers):
             if not c.tank.alive:
                 self.controllers.remove(c)
-                respawn_lvl = max(1, min(15, c.tank.level // 2))
                 self.pending.append((now + C.BOT_RESPAWN_DELAY, c.tank.name,
-                                     c.skill, respawn_lvl))
+                                     c.skill, self._respawn_level(c.tank.level)))
             else:
                 c.update(dt)
         for item in list(self.pending):

@@ -24,6 +24,12 @@ class Vec2:
     def length(self) -> float:
         return math.hypot(self.x, self.y)
 
+    def dot(self, o: "Vec2") -> float:
+        return self.x * o.x + self.y * o.y
+
+    def cross(self, o: "Vec2") -> float:
+        return self.x * o.y - self.y * o.x
+
     def length_sq(self) -> float:
         return self.x * self.x + self.y * self.y
 

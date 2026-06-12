@@ -119,8 +119,29 @@ BOT_NAMES = [
     "Shiny", "Arras", "Pental", "Dorito", "Bluep", "Crash", "Octo", "Vex",
     "Mango", "Drift", "Nova", "Pixel", "Rhomb", "Snek", "Turbo", "Zephyr",
 ]
-BOT_THINK_INTERVAL = 0.35
+BOT_THINK_INTERVAL = 0.25       # seconds between brain re-evaluations
 BOT_RESPAWN_DELAY = 2.5
+
+# bot fierceness tuning (overridden by --difficulty presets below)
+BOT_SKILL_RANGE = (0.7, 1.4)    # per-bot skill roll: aim, dodge, courage
+BOT_SPAWN_LEVELS = (4, 22)      # initial spawn level range
+BOT_RESPAWN_LEVEL_CAP = 32      # ceiling for the level bots respawn at
+BOT_CATCHUP_FACTOR = 0.5        # respawn floor = this * top alive tank level
+BOT_AGGRESSION = 1.0            # scales engage range / flee thresholds
+BOT_DODGE = 1.0                 # 0..1+ bullet-dodging competence
+BOT_PLAYER_FOCUS = 1.0          # >1 biases bot target choice toward the player
+
+DIFFICULTY_PRESETS = {
+    "easy": dict(BOT_SKILL_RANGE=(0.45, 0.9), BOT_SPAWN_LEVELS=(1, 12),
+                 BOT_RESPAWN_LEVEL_CAP=15, BOT_CATCHUP_FACTOR=0.25,
+                 BOT_AGGRESSION=0.7, BOT_DODGE=0.3, BOT_PLAYER_FOCUS=0.8),
+    "normal": dict(BOT_SKILL_RANGE=(0.7, 1.4), BOT_SPAWN_LEVELS=(4, 22),
+                   BOT_RESPAWN_LEVEL_CAP=32, BOT_CATCHUP_FACTOR=0.5,
+                   BOT_AGGRESSION=1.0, BOT_DODGE=1.0, BOT_PLAYER_FOCUS=1.0),
+    "hard": dict(BOT_SKILL_RANGE=(1.1, 1.6), BOT_SPAWN_LEVELS=(10, 30),
+                 BOT_RESPAWN_LEVEL_CAP=45, BOT_CATCHUP_FACTOR=0.7,
+                 BOT_AGGRESSION=1.35, BOT_DODGE=1.2, BOT_PLAYER_FOCUS=1.3),
+}
 
 # ----------------------------------------------------------------- shapes ----
 SHAPE_TARGETS = {          # how many of each shape the spawner maintains

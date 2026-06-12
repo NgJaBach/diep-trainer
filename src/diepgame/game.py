@@ -105,6 +105,7 @@ class Game:
         p.repelling = mouse[2] or keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
         mx, my = pygame.mouse.get_pos()
         target = self.camera.to_world(mx, my)
+        p.aim_target = target           # drones fly to the cursor
         if not p.auto_spin:
             p.aim_angle = (target - p.pos).angle()
 

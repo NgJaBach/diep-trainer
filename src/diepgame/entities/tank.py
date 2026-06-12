@@ -39,6 +39,7 @@ class Tank(Entity):
         self.is_player = is_player
         self.color = color or (C.COL_PLAYER if is_player else C.COL_ENEMY)
         self.aim_angle = 0.0
+        self.aim_target = None          # exact world point drones fly to
         self.move_input = Vec2()        # unit-ish input vector
         self.shooting = False
         self.repelling = False          # right-click for drone classes
@@ -153,6 +154,8 @@ class Tank(Entity):
         return "idle", self.pos
 
     def aim_point(self) -> Vec2:
+        if self.aim_target is not None:
+            return self.aim_target
         return self.pos + Vec2.from_angle(self.aim_angle, 600.0)
 
     # ------------------------------------------------------------ firing ----

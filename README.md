@@ -49,6 +49,7 @@ Options:
 uv run diep --name "Ace"          # your in-game name
 uv run diep --bots 12             # number of AI opponents (default 8)
 uv run diep --window 1600x900     # window size (default 1280x720)
+uv run diep --difficulty hard     # bot AI: easy / normal / hard
 ```
 
 Equivalent: `uv run python -m diepgame`.
@@ -89,7 +90,11 @@ every tank class, and checks leveling/upgrades/projectiles all work.
   Bullet Damage, Reload, Movement Speed, max 7 points each).
 * **Class upgrades** unlock at levels **15 / 30 / 45**.
 * **Killing a tank** grants half its score. Dying shows your run stats;
-  bots respawn at reduced level, and so can you (`Enter`).
+  you can respawn with `Enter`. Bots respawn at a level that keeps pace
+  with the arena leader (tunable via `--difficulty`).
+* **Bots** dodge bullets, lead their shots, finish wounded enemies, keep
+  class-appropriate range, screen retreats with drones, and hold huge
+  Destroyer shells until you are in range.
 * Special mechanics included: drone control (Overseer line), traps
   (Trapper line), recoil propulsion (Tri-Angle/Booster/Fighter), invisibility
   (Stalker, Manager, Landmine), rammer bodies (Smasher, Spike), huge-shell
@@ -155,7 +160,11 @@ diep-trainer/
   plain data. Add a `_add("my_tank", ...)` entry, list it in some tank's
   `upgrades_to`, and it's playable immediately.
 * Bot builds/personalities are in `src/diepgame/ai/bot.py` (`BUILDS`,
-  `ARCHETYPE`, skill ranges).
+  `ARCHETYPE`, `CLASS_WEIGHTS`); fierceness knobs (aggression, dodging,
+  respawn catch-up, player focus) live in `config.py` as the
+  `DIFFICULTY_PRESETS`.
+* Benchmark AI changes with `uv run python tests/ai_bench.py` (bot-vs-bot
+  arena stats, a bullet-dodging probe, and a player-pressure probe).
 
 ## 9. Troubleshooting
 
