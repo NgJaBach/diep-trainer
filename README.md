@@ -1,13 +1,13 @@
-# Polygon Arena — offline tank trainer
+# Polygon Arena: offline tank trainer
 
-A fully offline, single-player tank-arena game in the spirit of the classic
-browser shape-farming genre. You fight in a 6000×6000 arena against AI bots,
-farm polygons for XP, allocate 8 stat lines, and climb a 38-class upgrade
-tree (Twin / Sniper / Machine Gun / Flank Guard branches up through tier-4
-classes like Overlord, Annihilator, Booster, Ranger, Octo Tank and more).
+A fully offline, single-player tank-arena game inspired by diep.io. You fight
+in a 6000x6000 arena against AI bots, farm polygons for XP, allocate 8 stat
+lines, and climb a 38-class upgrade tree (Twin / Sniper / Machine Gun / Flank
+Guard branches up through tier-4 classes like Overlord, Annihilator, Booster,
+Ranger, Octo Tank and more).
 
-Everything — code, art, balance numbers — is original and generated
-procedurally with `pygame`. No internet connection is ever needed.
+Everything (code, art, balance numbers) is original and generated procedurally
+with `pygame`. No internet connection is ever needed.
 
 ---
 
@@ -86,7 +86,7 @@ every tank class, and checks leveling/upgrades/projectiles all work.
   pentagons (3000). Pink **crashers** in the central pentagon nest chase you.
 * **Leveling**: cap is level 45; you earn 33 skill points across 8 stats
   (Health Regen, Max Health, Body Damage, Bullet Speed, Bullet Penetration,
-  Bullet Damage, Reload, Movement Speed — max 7 points each).
+  Bullet Damage, Reload, Movement Speed, max 7 points each).
 * **Class upgrades** unlock at levels **15 / 30 / 45**.
 * **Killing a tank** grants half its score. Dying shows your run stats;
   bots respawn at reduced level, and so can you (`Enter`).
@@ -151,7 +151,7 @@ diep-trainer/
 
 * All balance lives in `src/diepgame/config.py` (XP curve, stat scaling,
   reload, bullet formulas, shape counts, bot count).
-* Add or tweak tank classes in `src/diepgame/tanks/definitions.py` — they're
+* Add or tweak tank classes in `src/diepgame/tanks/definitions.py`. They are
   plain data. Add a `_add("my_tank", ...)` entry, list it in some tank's
   `upgrades_to`, and it's playable immediately.
 * Bot builds/personalities are in `src/diepgame/ai/bot.py` (`BUILDS`,
