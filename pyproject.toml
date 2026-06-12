@@ -1,0 +1,19 @@
+[project]
+name = "diepgame"
+version = "1.0.0"
+description = "An offline, single-player tank arena game inspired by diep.io, with bot opponents. Built for local practice/training."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pygame-ce>=2.4.0",
+]
+
+[project.scripts]
+diep = "diepgame.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/diepgame"]
