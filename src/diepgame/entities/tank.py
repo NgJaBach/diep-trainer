@@ -70,7 +70,9 @@ class Tank(Entity):
         self.body_damage = (C.TANK_BASE_BODY_DMG
                             + C.TANK_BODY_DMG_PER_STAT * self.stats[2]) \
             * self.tdef.body_damage_mult
-        self.regen_rate = C.TANK_REGEN_BASE + C.TANK_REGEN_PER_STAT * self.stats[0]
+        self.regen_rate = (C.TANK_REGEN_BASE
+                           + C.TANK_REGEN_PER_STAT * self.stats[0]) \
+            * self.tdef.regen_mult
         self.radius = C.TANK_BASE_RADIUS + C.TANK_RADIUS_PER_LEVEL * (self.level - 1)
 
     def _rebuild_barrels(self):
@@ -193,6 +195,7 @@ class Tank(Entity):
     def take_damage(self, amount: float, attacker=None):
         if self.world.time < self.shield_until:
             return
+        amount *= (1.0 - self.tdef.damage_resist)   # class "armor"
         super().take_damage(amount, attacker)
 
     def update(self, dt: float):

@@ -102,6 +102,13 @@ all reuse the same core.
 - **Balance lives in `config.py`.** Don't scatter magic numbers; route through
   it. Tank shapes are pure data in `definitions.py` — add `_add("key", ...)`,
   list it in another tank's `upgrades_to`, and it's playable.
+- **Class specialties are TankDef traits**, not scattered code: `max_health_mult`
+  (rammers ~1.6–1.9, snipers ~0.7–0.85), `damage_resist` (flat "armor": rammers
+  0.12–0.22), `regen_mult` (rammers 1.3–1.5), `body_damage_mult`, `speed_mult`,
+  `fov`. HP scaling (`TANK_HP_PER_STAT=50`, `*_PER_LEVEL=4`) is tuned so a
+  full-health lvl-45 normal tank survives ~8 maxed bullets and rammers ~15–19;
+  bullet damage is left high enough that maxed builds still one-shot pentagons.
+  Tune survivability via HP/traits, not by nerfing bullet damage.
 - **Discrete hit model** (`collision.py`): a projectile deals damage **once per
   contact**, then that bullet+victim pair is on a `HIT_COOLDOWN` (~0.25s) via a
   per-bullet `hit_gate` dict. This is frame-rate independent and makes

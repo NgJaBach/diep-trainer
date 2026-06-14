@@ -86,17 +86,17 @@ CLASS_UPGRADE_LEVELS = (15, 30, 45)
 TANK_BASE_RADIUS = 24.0
 TANK_RADIUS_PER_LEVEL = 0.36
 TANK_BASE_HP = 50.0
-TANK_HP_PER_LEVEL = 2.0
-TANK_HP_PER_STAT = 20.0
+TANK_HP_PER_LEVEL = 4.0           # tanks get meaningfully tankier as they grow
+TANK_HP_PER_STAT = 50.0          # Max Health is now a heavy investment (7 pts = +350)
 TANK_BASE_SPEED = 230.0          # px / s
 TANK_SPEED_PER_STAT = 0.07       # +7% per point
 TANK_SPEED_LEVEL_DECAY = 0.0035  # slight slowdown as you level
 TANK_BASE_BODY_DMG = 20.0
 TANK_BODY_DMG_PER_STAT = 4.0
-TANK_REGEN_BASE = 0.0012         # fraction of max hp per second
-TANK_REGEN_PER_STAT = 0.0044
-TANK_FAST_REGEN_DELAY = 14.0     # seconds without damage -> fast regen
-TANK_FAST_REGEN_RATE = 0.07
+TANK_REGEN_BASE = 0.0015         # fraction of max hp per second
+TANK_REGEN_PER_STAT = 0.006
+TANK_FAST_REGEN_DELAY = 10.0     # seconds without damage -> fast regen
+TANK_FAST_REGEN_RATE = 0.10      # out-of-combat tanks recover quickly
 SPAWN_PROTECTION = 6.0           # seconds of spawn shield (breaks on firing)
 
 # practice mode (set via --class / --level CLI flags)
