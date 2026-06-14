@@ -31,10 +31,27 @@ uv run python tests/smoke_test.py     # 30s bot sim, instantiates every class
 uv run python tests/net_test.py       # LAN host+client over a loopback socket
 uv run python tests/ai_bench.py       # bot AI: arena / dodge / pressure probes
 uv run python tests/balance_audit.py  # per-class DPS / range / TTK tables
+uv run python tools/diagnostics.py    # health/damage/reload/regen/recoil/shield
 ```
 
-Always run `smoke_test.py` after touching simulation/entities, and
-`net_test.py` after touching anything under `net/`.
+Always run `smoke_test.py` after touching simulation/entities, `net_test.py`
+after touching anything under `net/`, and `diagnostics.py` after touching
+combat math (collision/tank/config).
+
+### AI training (evolutionary self-play)
+
+```bash
+uv run python tools/train.py --hours 12   # parallel trainer (1 arena per core)
+uv run python tools/evaluate.py           # champion vs baseline A/B (proves gains)
+```
+
+Bots are driven by a `Genome` (ai/genome.py): ~17 floats read by
+`BotController`. `tools/train.py` runs N headless FFA arenas in parallel
+(`multiprocessing`, one per core), turns every kill into an ELO match, and each
+generation culls/breeds the population (`ai/population.py`), saving to
+`training/population.json`. The live `BotManager` auto-loads that file and names
+bots `Name — ELO 1240`; with no file it falls back to `DEFAULT_GENOME` (a fierce
+hand-tuned baseline). CSV telemetry: `training/log.csv`.
 
 ## Architecture
 
@@ -67,7 +84,9 @@ all reuse the same core.
 | `entities/projectiles.py` | `Bullet` / `Trap` / `Drone` (+ per-pair hit gate). |
 | `entities/shapes.py` | Polygons, crashers, shiny variants, `Guardian` boss. |
 | `tanks/definitions.py` | **Data-driven class tree.** Every tank = barrels + modifiers. `available_upgrades()` helper lives here (shared by Tank + client). |
-| `ai/bot.py` | Bot brain (FARM/ATTACK/FLEE, dodging, leading, class tactics) + `BotManager` respawns. `BUILDS`/`ARCHETYPE`/`CLASS_WEIGHTS`. |
+| `ai/bot.py` | Genome-driven bot brain (FARM/ATTACK/FLEE, multi-threat dodging + crowd-avoidance, leading, class tactics) + `BotManager`. `BUILDS`/`ARCHETYPE`/`CLASS_WEIGHTS`. |
+| `ai/genome.py` | The tunable gene vector + mutate/crossover. `GENES` defines ranges; defaults = the shipped baseline brain. |
+| `ai/population.py` | ELO ladder, evolution (cull/breed), JSON persistence (`training/population.json`). |
 | `systems/world.py` | Entity registry, spawner, scoring, boss schedule, team helpers, death effects. |
 | `systems/collision.py` | Contact damage rules (see "discrete hit model"). |
 | `ui/renderer.py` | Procedural drawing of everything; `draw_tank_icon` for HUD previews. |
@@ -111,7 +130,17 @@ all reuse the same core.
 - **Headless testing**: set `SDL_VIDEODRIVER=dummy` / `SDL_AUDIODRIVER=dummy`
   before importing pygame to run windowless. `Game._update` / `_draw` /
   `step_headless` are usable without a real display.
+- **Bot behavior is genome-driven.** Don't reintroduce hard-coded personality
+  constants in `bot.py`; add a gene to `GENES` (with a sensible default = good
+  baseline behavior) and read it via `self.g["name"]`. The default genome must
+  stay a fierce, competent baseline since it ships when there's no trained
+  population and seeds training.
+- **Training is CPU-parallel.** `tools/train.py` uses `multiprocessing` with a
+  spawned pool; the worker (`run_episode`) is top-level and imports the engine
+  inside so it pickles to fresh processes. Population checkpoints every
+  generation, so it's safe to kill mid-run.
 - **Don't commit** unless asked. Tests are scripts; there's no CI.
+  `training/*.json` / `*.csv` are generated artifacts — don't hand-edit.
 
 ## Current state (as of this writing)
 

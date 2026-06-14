@@ -89,11 +89,38 @@ uv run diep --join 192.168.1.42 --name "Ace"         # default port 8765
 * LAN only, and traffic is **not encrypted** — use on a trusted network. The
   password just keeps uninvited people on your network out.
 
+## 3b. Training the bot AI (it learns over time)
+
+The bots are driven by a ~17-gene "genome" (aggression, dodging, threat
+avoidance, focus-fire, kiting, accuracy, class preferences…). An evolutionary
+self-play trainer optimizes these genomes for **kills and survival** via an
+ELO ladder: every kill is an ELO match (killer up, victim down) and dying to
+the arena costs ELO. Training runs **one arena per CPU core in parallel**.
+
+```bash
+uv run python tools/train.py                 # train on all cores (10 min default)
+uv run python tools/train.py --hours 12      # long unattended run
+uv run python tools/train.py --workers 6     # cap parallel arenas
+uv run python tools/train.py --fresh         # start a new population
+```
+
+* Results persist to `training/population.json` (resumes automatically) and
+  per-generation telemetry to `training/log.csv`. Stop anytime (Ctrl+C) — it
+  checkpoints every generation.
+* The live game **auto-loads** the trained population: bots are named
+  `Vex — ELO 1240` and play the evolved brains. No training? Bots use a solid
+  hand-tuned default genome.
+* Prove it's working — champion (best evolved) vs baseline (default), head to
+  head: `uv run python tools/evaluate.py`
+* Systems sanity (health/damage/reload/regen/recoil/shield):
+  `uv run python tools/diagnostics.py`
+
 ## 4. Verify the install (headless smoke test)
 
 ```bash
 uv run python tests/smoke_test.py        # 30s bot sim + every class
 uv run python tests/net_test.py          # LAN host/client netcode end-to-end
+uv run python tools/diagnostics.py       # core-mechanics invariants
 ```
 
 The smoke test simulates bot-vs-bot play with no window, instantiates every
@@ -204,12 +231,21 @@ diep-trainer/
     ├── ui/
     │   ├── renderer.py         # procedural drawing of everything
     │   └── hud.py              # stat panel, upgrades, minimap, leaderboard
-    └── net/                    # LAN multiplayer
-        ├── protocol.py         # framed JSON + snapshot build/apply
-        ├── server.py           # authoritative host (asyncio I/O thread)
-        ├── client.py           # client transport + snapshot interpolation
-        ├── clientgame.py       # client render loop (reuses renderer/HUD)
-        └── lan.py              # LAN IP + HTTP invite page
+    ├── net/                    # LAN multiplayer
+    │   ├── protocol.py         # framed JSON + snapshot build/apply
+    │   ├── server.py           # authoritative host (asyncio I/O thread)
+    │   ├── client.py           # client transport + snapshot interpolation
+    │   ├── clientgame.py       # client render loop (reuses renderer/HUD)
+    │   └── lan.py              # LAN IP + HTTP invite page
+    └── ai/
+        ├── bot.py              # genome-driven brain + BotManager
+        ├── genome.py           # the tunable gene vector
+        └── population.py       # ELO ladder + evolution + persistence
+
+tools/                          # not shipped; dev/training utilities
+├── train.py                    # parallel evolutionary trainer
+├── evaluate.py                 # champion-vs-baseline A/B
+└── diagnostics.py              # core-mechanics invariant checks
 ```
 
 ## 8. Tuning & modding

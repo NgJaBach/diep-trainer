@@ -39,7 +39,8 @@ class Game:
         self.world.mode = mode
         self.server = server          # GameServer when hosting, else None
         self.world.populate_initial()
-        self.bots = BotManager(self.world)
+        from .ai.population import Population
+        self.bots = BotManager(self.world, population=Population.load())
         self.bots.spawn_initial()
         self.camera = Camera()
         self.renderer = Renderer(self.screen)
