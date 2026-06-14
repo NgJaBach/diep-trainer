@@ -172,3 +172,19 @@ SHAPE_TARGETS = {          # how many of each shape the spawner maintains
 # ------------------------------------------------------------------- boss ----
 BOSS_FIRST_AT = 150.0      # seconds until the first Guardian spawns
 BOSS_INTERVAL = 240.0      # seconds between boss respawns after a kill
+
+# --------------------------------------------------------------- teams/net ----
+TEAM_NEUTRAL = 0           # shapes
+TEAM_BLUE = 1              # all humans in team mode
+TEAM_RED = 2              # all bots in team mode
+TEAM_FFA_START = 10        # unique team ids for FFA start here
+
+GAME_MODE = "ffa"          # "ffa" or "team" (set by host)
+
+NET_PORT = 8765            # authoritative game server (TCP)
+NET_INVITE_PORT = 8080     # host's HTTP invite page
+NET_SNAPSHOT_HZ = 20       # world snapshots sent to each client per second
+NET_INPUT_HZ = 30          # input packets a client sends per second
+NET_AOI_RADIUS = 2200.0    # entities within this range of a client are sent
+NET_INTERP_DELAY = 0.10    # client renders this many seconds in the past
+NET_PROTOCOL = 1           # bump on wire-format changes

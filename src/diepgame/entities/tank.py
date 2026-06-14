@@ -9,7 +9,7 @@ import random
 from .base import Entity
 from .projectiles import Bullet, Trap, Drone
 from ..core.vector import Vec2
-from ..tanks.definitions import TANK_DEFS, Barrel
+from ..tanks.definitions import TANK_DEFS, Barrel, available_upgrades
 from .. import config as C
 
 
@@ -120,13 +120,7 @@ class Tank(Entity):
 
     def available_upgrades(self) -> list[str]:
         """Class keys this tank may upgrade into at its current level."""
-        out = []
-        for key in self.tdef.upgrades_to:
-            t = TANK_DEFS[key]
-            need = C.CLASS_UPGRADE_LEVELS[min(t.tier - 2, 2)]
-            if self.level >= need:
-                out.append(key)
-        return out
+        return available_upgrades(self.def_key, self.level)
 
     def upgrade_class(self, key: str) -> bool:
         if key not in self.available_upgrades():

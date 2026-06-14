@@ -19,9 +19,10 @@ class World:
         self.tanks: list[Tank] = []
         self.grid = SpatialHash(140.0)
         self.player: Tank | None = None
+        self.mode = C.GAME_MODE                        # "ffa" or "team"
         self.kill_feed: list[tuple[str, float]] = []   # (text, expiry)
         self.effects: list[dict] = []                  # death bursts
-        self._team_counter = 1
+        self._team_counter = C.TEAM_FFA_START
         self._shape_counts = {k: 0 for k in SHAPE_DEFS}
         self.bot_controllers = []   # filled by Game
         self.center = Vec2(C.ARENA_SIZE / 2, C.ARENA_SIZE / 2)
@@ -39,6 +40,14 @@ class World:
     def new_team(self) -> int:
         self._team_counter += 1
         return self._team_counter
+
+    def human_team(self) -> int:
+        """Team for a human player: shared blue in team mode, unique in FFA."""
+        return C.TEAM_BLUE if self.mode == "team" else self.new_team()
+
+    def bot_team(self) -> int:
+        """Team for a bot: shared red in team mode, unique in FFA."""
+        return C.TEAM_RED if self.mode == "team" else self.new_team()
 
     def on_entity_died(self, e: Entity):
         # death burst (drawn by the renderer, aged in step)
@@ -153,8 +162,10 @@ class World:
                 self._spawn_shape(st)
 
     def spawn_tank(self, name: str, is_player=False, def_key="basic",
-                   level: int = 1, color=None) -> Tank:
-        t = Tank(self, self.random_spawn_pos(), name, self.new_team(),
+                   level: int = 1, color=None, team: int | None = None) -> Tank:
+        if team is None:
+            team = self.human_team() if is_player else self.new_team()
+        t = Tank(self, self.random_spawn_pos(), name, team,
                  def_key=def_key, is_player=is_player, color=color)
         if level > 1:
             t.add_score(C.xp_for_level(level))

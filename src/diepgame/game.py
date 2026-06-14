@@ -29,12 +29,15 @@ STATS_KEYS = ("best_score", "best_level", "best_kills", "longest_life", "games")
 
 
 class Game:
-    def __init__(self, player_name: str = "You"):
+    def __init__(self, player_name: str = "You", mode: str = "ffa",
+                 server=None):
         pygame.init()
         pygame.display.set_caption(C.TITLE)
         self.screen = pygame.display.set_mode((C.WINDOW_W, C.WINDOW_H))
         self.clock = pygame.time.Clock()
         self.world = World()
+        self.world.mode = mode
+        self.server = server          # GameServer when hosting, else None
         self.world.populate_initial()
         self.bots = BotManager(self.world)
         self.bots.spawn_initial()
@@ -49,6 +52,7 @@ class Game:
         self.paused = False
         self.running = True
         self._mouse_block = False     # HUD swallowed the current click
+        self.net_banner = ""          # host-only: invite address line
         self.stats = self._load_stats()
         self._spawn_player()
 
@@ -157,8 +161,12 @@ class Game:
         if self.paused:
             return
         self._poll_player_input()
+        if self.server is not None:
+            self.server.pump()        # apply remote joins/leaves/input
         self.bots.update(dt)
         self.world.step(dt)
+        if self.server is not None:
+            self.server.publish()     # encode each client's snapshot
         p = self.player
         if p is not None:
             if p.alive:
@@ -188,6 +196,10 @@ class Game:
         self.renderer.draw_world(self.world, self.camera, self.player)
         self.hud.draw(self.world, self.player, paused=self.paused,
                       fps=self.clock.get_fps())
+        if self.server is not None:
+            line = f"{self.net_banner}   players: {self.server.player_count + 1}"
+            img = self.hud._text(self.hud.font_s, line)
+            self.screen.blit(img, (14, C.WINDOW_H - 8 * 26 - 40))
         if self.player is not None and not self.player.alive \
                 and self.death_stats is not None:
             self.hud.draw_death(self.death_stats)

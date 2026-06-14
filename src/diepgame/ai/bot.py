@@ -384,7 +384,8 @@ class BotManager:
             self._spawn(n, random.uniform(*C.BOT_SKILL_RANGE), lvl)
 
     def _spawn(self, name, skill, level):
-        tank = self.world.spawn_tank(name, def_key="basic", level=level)
+        tank = self.world.spawn_tank(name, def_key="basic", level=level,
+                                     team=self.world.bot_team())
         ctrl = BotController(self.world, tank, skill)
         ctrl._spend_points()
         ctrl._maybe_upgrade_class()

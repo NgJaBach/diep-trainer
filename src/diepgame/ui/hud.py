@@ -49,7 +49,7 @@ class Hud:
             self._draw_class_choices(player)
             self._draw_toggles(player)
             self._draw_leader_arrow(world, player)
-        feed_y = self._draw_leaderboard(world)
+        feed_y = self._draw_leaderboard(world, player)
         self._draw_minimap(world, player)
         self._draw_killfeed(world, feed_y + 10)
         if fps:
@@ -184,7 +184,7 @@ class Hud:
             img = self._text(self.font_s, "   ".join(bits), color=(255, 230, 120))
             self.screen.blit(img, ((C.WINDOW_W - img.get_width()) / 2, 10))
 
-    def _draw_leaderboard(self, world) -> int:
+    def _draw_leaderboard(self, world, player=None) -> int:
         """Draws the top-10 list; returns the bottom y so the kill feed
         can stack below instead of overlapping."""
         top = world.leaderboard(10)
@@ -194,12 +194,14 @@ class Hud:
         self.screen.blit(title, (x + 50, y))
         y += 28
         best = top[0].score if top else 1.0
+        pteam = getattr(player, "team", None)
         for t in top:
             w = 200
             frac = max(0.06, t.score / max(1.0, best))
             pygame.draw.rect(self.screen, (60, 60, 60),
                              (x, y, w, 16), border_radius=8)
-            col = C.COL_PLAYER if t.is_player else C.COL_ENEMY
+            friendly = t is player or (pteam is not None and t.team == pteam)
+            col = C.COL_PLAYER if friendly else C.COL_ENEMY
             fw = (w - 2) * frac
             pygame.draw.rect(self.screen, col,
                              (x + 1, y + 1, fw, 14),
@@ -225,10 +227,12 @@ class Hud:
         if boss is not None and boss.alive:
             pygame.draw.circle(surf, (170, 40, 130),
                                (boss.pos.x * k, boss.pos.y * k), 5)
+        pteam = getattr(player, "team", None)
         for t in world.tanks:
             if not t.alive:
                 continue
-            col = C.COL_PLAYER if t is player else C.COL_ENEMY
+            friendly = t is player or (pteam is not None and t.team == pteam)
+            col = C.COL_PLAYER if friendly else C.COL_ENEMY
             pygame.draw.circle(surf, col, (t.pos.x * k, t.pos.y * k),
                                4 if t is player else 2.5)
         self.screen.blit(surf, (x, y))

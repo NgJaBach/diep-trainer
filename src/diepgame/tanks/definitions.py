@@ -18,6 +18,7 @@ tank's computed bullet stats. kind is one of "bullet", "drone", "trap",
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
+from .. import config as C
 
 
 @dataclass(frozen=True)
@@ -313,3 +314,16 @@ _add("landmine", name="Landmine", tier=4, body_shape="smasher",
      fov=0.95, invisible_when_idle=True)
 
 TANK_DEFS = T
+
+
+def available_upgrades(def_key: str, level: int) -> list[str]:
+    """Class keys a tank of `def_key` may upgrade into at `level`.
+
+    Pure function shared by the Tank entity (server side) and the network
+    client (which has no live Tank objects, only def_key + level)."""
+    out = []
+    for key in TANK_DEFS[def_key].upgrades_to:
+        need = C.CLASS_UPGRADE_LEVELS[min(TANK_DEFS[key].tier - 2, 2)]
+        if level >= need:
+            out.append(key)
+    return out

@@ -55,14 +55,51 @@ uv run diep --class overlord --level 45   # practice mode: jump into a build
 
 Equivalent: `uv run python -m diepgame`.
 
+## 3a. LAN multiplayer (play with friends on the same Wi-Fi)
+
+The host runs the authoritative game (bots, boss, shapes, scoring all live on
+the host). Friends join as thin clients over the local network.
+
+**Host a game:**
+
+```bash
+uv run diep --host                       # FFA: everyone for themselves
+uv run diep --host --mode team           # Team: you + friends (blue) vs bots (red)
+uv run diep --host --password lan123     # require a join password
+uv run diep --host --no-window           # dedicated server (no host player/window)
+```
+
+On start, the host prints the join command and an **invite link** (e.g.
+`http://192.168.1.42:8080`) — open that link on a phone/PC on the same network
+to see the address, password, and copy-paste join command. Send it to friends.
+
+**Join a game:**
+
+```bash
+uv run diep --join 192.168.1.42:8765                 # address from the invite
+uv run diep --join 192.168.1.42:8765 --password lan123
+uv run diep --join 192.168.1.42 --name "Ace"         # default port 8765
+```
+
+* **FFA** — every player and bot is on their own team; everyone can kill
+  everyone. **Team** — all humans share blue and fight the red bots together;
+  friendly fire is off (you can't hurt teammates).
+* Ports default to **8765** (game) and **8080** (invite page); override with
+  `--port` / `--invite-port`.
+* LAN only, and traffic is **not encrypted** — use on a trusted network. The
+  password just keeps uninvited people on your network out.
+
 ## 4. Verify the install (headless smoke test)
 
 ```bash
-uv run python tests/smoke_test.py
+uv run python tests/smoke_test.py        # 30s bot sim + every class
+uv run python tests/net_test.py          # LAN host/client netcode end-to-end
 ```
 
-This simulates 30 seconds of bot-vs-bot play with no window, instantiates
-every tank class, and checks leveling/upgrades/projectiles all work.
+The smoke test simulates bot-vs-bot play with no window, instantiates every
+tank class, and checks leveling/upgrades/projectiles. The net test runs a real
+server + client over a loopback socket (join, input, snapshots, upgrades,
+death/respawn, password rejection, disconnect cleanup).
 
 ---
 
@@ -140,7 +177,10 @@ diep-trainer/
 ├── pyproject.toml              # uv/pip metadata, deps, `diep` script
 ├── README.md
 ├── tests/
-│   └── smoke_test.py           # headless 30s simulation + class checks
+│   ├── smoke_test.py           # headless 30s simulation + class checks
+│   ├── ai_bench.py             # bot AI benchmark (arena/dodge/pressure)
+│   ├── balance_audit.py        # per-class DPS/range/TTK tables
+│   └── net_test.py             # LAN host/client netcode end-to-end
 └── src/diepgame/
     ├── config.py               # every balance constant in one place
     ├── main.py / __main__.py   # CLI entry point
@@ -161,9 +201,15 @@ diep-trainer/
     │   ├── spatial.py          # spatial hash broad-phase
     │   ├── collision.py        # contact damage + separation
     │   └── world.py            # entity registry, spawner, scoring
-    └── ui/
-        ├── renderer.py         # procedural drawing of everything
-        └── hud.py              # stat panel, upgrades, minimap, leaderboard
+    ├── ui/
+    │   ├── renderer.py         # procedural drawing of everything
+    │   └── hud.py              # stat panel, upgrades, minimap, leaderboard
+    └── net/                    # LAN multiplayer
+        ├── protocol.py         # framed JSON + snapshot build/apply
+        ├── server.py           # authoritative host (asyncio I/O thread)
+        ├── client.py           # client transport + snapshot interpolation
+        ├── clientgame.py       # client render loop (reuses renderer/HUD)
+        └── lan.py              # LAN IP + HTTP invite page
 ```
 
 ## 8. Tuning & modding
